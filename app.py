@@ -11,7 +11,7 @@ app.secret_key = "supersecretkey123"
 # 👥 USERS
 USERS = {
     "himanshu": "7323996467",
-    "team1": "7323996467"
+    "admin": "7323996467"
 }
 
 progress_data = {}
@@ -49,12 +49,16 @@ def get_info():
     url = request.json.get('url')
 
     try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'cookiefile': 'cookies.txt'   # 🔐 IMPORTANT
-        }
+       ydl_opts = {
+    'format': f'bestvideo[height<={height}]+bestaudio/best',
+    'outtmpl': output_path,
+    'merge_output_format': 'mp4',
+    'quiet': True,
+    'no_warnings': True,
+    'noplaylist': True,
+    'cookiefile': 'cookies.txt',
+    'progress_hooks': [progress_hook]
+}
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
