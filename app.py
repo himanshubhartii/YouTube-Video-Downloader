@@ -11,8 +11,8 @@ app.secret_key = "supersecretkey123"
 
 # 👥 USERS
 USERS = {
-    "himanshu": "1234",
-    "team1": "pass1"
+    "himanshu": "7323996467",
+    "admin": "7323996467"
 }
 
 progress_data = {}
