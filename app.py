@@ -59,9 +59,8 @@ def get_info():
     'cookiefile': 'cookies.txt',
     'progress_hooks': [progress_hook]
 }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+     info = ydl.extract_info(url, download=False)
 
         formats = info.get('formats', [])
 
