@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YouTube Downloader</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<div class="container">
+
+    <!-- LEFT SIDE -->
+    <div style="flex:1;">
+        <h2>Download YouTube Videos</h2>
+
+        <input type="text" id="url" placeholder="Paste YouTube URL">
+
+        <button onclick="fetchInfo()">Fetch Video</button>
+
+        <select id="quality"></select>
+
+        <button id="downloadBtn" onclick="startDownload()">⬇ Download</button>
+
+        <div class="bar">
+            <div id="progressBar" class="fill"></div>
+        </div>
+
+        <p id="progressText">0 MB / 0 MB</p>
+        <p id="speedText">Speed: 0 MB/s</p>
+        <p id="etaText">ETA: 0 sec</p>
+    </div>
+
+    <!-- RIGHT SIDE -->
+    <div style="flex:1;" class="preview-card">
+        <h3 id="title">Preview</h3>
+        <img id="thumbnail">
+    </div>
+
+</div>
+
+<script>
+let currentInterval = null;
+
+// 🎬 Fetch video
+function fetchInfo() {
+    const url = document.getElementById("url").value;
+
+    if (!url) {
+        alert("Enter URL");
+        return;
+    }
+
+    document.getElementById("quality").innerHTML = "";
+    document.getElementById("title").innerText = "";
+    document.getElementById("thumbnail").src = "";
+
+    fetch('/get_info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+    })
+    .then(res => res.json())
+    .then(data => {
+
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+
+        document.getElementById("title").innerText = data.title;
+        document.getElementById("thumbnail").src = data.thumbnail;
+
+        let hidden = document.getElementById("hiddenUrl");
+        if (!hidden) {
+            hidden = document.createElement("input");
+            hidden.type = "hidden";
+            hidden.id = "hiddenUrl";
+            document.body.appendChild(hidden);
+        }
+        hidden.value = url;
+
+        const select = document.getElementById("quality");
+        select.innerHTML = "";
+
+        data.qualities.forEach(q => {
+            const option = document.createElement("option");
+            option.value = q.quality;
+            option.text = `${q.quality} (${q.size})`;
+            select.appendChild(option);
+        });
+
+    });
+}
+
+// ⬇ Download
+function startDownload() {
+    const url = document.getElementById("hiddenUrl").value;
+    const quality = document.getElementById("quality").value;
+    const btn = document.getElementById("downloadBtn");
+
+    if (!url) {
+        alert("Fetch video first!");
+        return;
+    }
+
+    // 🔥 Spinner ON
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Downloading...';
+
+    document.getElementById("progressBar").style.width = "0%";
+    document.getElementById("progressText").innerText = "0 MB / 0 MB";
+    document.getElementById("speedText").innerText = "Speed: 0 MB/s";
+    document.getElementById("etaText").innerText = "ETA: 0 sec";
+
+    fetch('/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `url=${url}&quality=${quality}`
+    })
+    .then(res => res.json())
+    .then(data => {
+
+        if (data.error) {
+            alert(data.error);
+
+            // 🔥 Reset button on error
+            btn.disabled = false;
+            btn.innerHTML = "⬇ Download";
+            return;
+        }
+
+        trackProgress(data.id);
+    });
+}
+
+// 📊 Progress
+function trackProgress(id) {
+
+    if (currentInterval) {
+        clearInterval(currentInterval);
+    }
+
+    currentInterval = setInterval(() => {
+
+        fetch(`/progress/${id}`)
+        .then(res => res.json())
+        .then(data => {
+
+            if (!data.total) return;
+
+            const downloaded = (data.downloaded / (1024*1024)).toFixed(2);
+            const total = (data.total / (1024*1024)).toFixed(2);
+
+            document.getElementById("progressText").innerText =
+                `${downloaded} MB / ${total} MB`;
+
+            document.getElementById("speedText").innerText =
+                `Speed: ${data.speed} MB/s`;
+
+            document.getElementById("etaText").innerText =
+                `ETA: ${data.eta} sec`;
+
+            const percent = (data.downloaded / data.total) * 100;
+            document.getElementById("progressBar").style.width = percent + "%";
+
+            if (data.done) {
+                clearInterval(currentInterval);
+
+                const btn = document.getElementById("downloadBtn");
+                btn.disabled = false;
+                btn.innerHTML = "⬇ Download";
+
+                setTimeout(() => {
+                    window.location.href = `/get_file/${id}`;
+                }, 300);
+            }
+
+        });
+
+    }, 1000);
+}
+</script>
+
+</body>
+</html>
