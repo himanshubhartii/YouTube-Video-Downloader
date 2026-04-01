@@ -1,5 +1,5 @@
 from flask import Flask, request, render_template, send_file, jsonify, session, redirect, url_for
-from pytubefix import YouTube
+import yt_dlp
 import tempfile
 import os
 import uuid
@@ -7,18 +7,18 @@ import time
 import threading
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey123"   # 🔐 change this
+app.secret_key = "supersecretkey123"
 
 # 👥 USERS
 USERS = {
-    "himanshu": "7323996467",
-    "admin": "7323996467"
+    "himanshu": "1234",
+    "team1": "pass1"
 }
 
 progress_data = {}
 
-# 🔐 LOGIN PAGE
-@app.route('/', methods=["GET", "POST"])
+# 🔐 LOGIN
+@app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form.get("username")
@@ -33,15 +33,15 @@ def login():
     return render_template("login.html")
 
 
-# 🏠 HOME (Protected)
-@app.route('/home')
+# 🏠 HOME
+@app.route("/home")
 def home():
     if "user" not in session:
-        return redirect(url_for("login"))
+        return redirect("/")
     return render_template("index.html")
 
 
-# 🎬 Fetch video info (Protected)
+# 🎬 GET VIDEO INFO
 @app.route('/get_info', methods=['POST'])
 def get_info():
     if "user" not in session:
@@ -50,37 +50,34 @@ def get_info():
     url = request.json.get('url')
 
     try:
-        yt = YouTube(url, use_oauth=True, allow_oauth_cache=True)
-        streams = yt.streams.filter(file_extension='mp4')
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True
+        }
 
-        best = {}
-        for s in streams:
-            if s.resolution and s.filesize:
-                res = s.resolution
-                if res not in best or s.filesize > best[res].filesize:
-                    best[res] = s
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        formats = info.get('formats', [])
 
         qualities = []
-        for q in ["360p", "480p", "720p", "1080p"]:
-            if q in best:
-                size = round(best[q].filesize / (1024*1024), 2)
-                qualities.append({
-                    "quality": q,
-                    "size": f"{size} MB"
-                })
+        added = set()
 
-        if not qualities:
-            fallback = yt.streams.filter(progressive=True).first()
-            if fallback:
-                size = round(fallback.filesize / (1024*1024), 2)
-                qualities.append({
-                    "quality": fallback.resolution,
-                    "size": f"{size} MB"
-                })
+        for f in formats:
+            if f.get('height') in [360, 480, 720, 1080]:
+                q = f"{f.get('height')}p"
+                if q not in added and f.get('filesize'):
+                    size = round(f.get('filesize') / (1024*1024), 2)
+                    qualities.append({
+                        "quality": q,
+                        "size": f"{size} MB"
+                    })
+                    added.add(q)
 
         return jsonify({
-            "title": yt.title,
-            "thumbnail": yt.thumbnail_url,
+            "title": info.get('title'),
+            "thumbnail": info.get('thumbnail'),
             "qualities": qualities
         })
 
@@ -88,7 +85,7 @@ def get_info():
         return jsonify({"error": str(e)})
 
 
-# ⬇ Download (Protected)
+# ⬇ DOWNLOAD
 @app.route('/download', methods=['POST'])
 def download():
     if "user" not in session:
@@ -98,78 +95,42 @@ def download():
         url = request.form.get('url')
         quality = request.form.get('quality')
 
-        yt = YouTube(url)
         unique_id = str(uuid.uuid4())
         temp_dir = tempfile.gettempdir()
+        output_path = os.path.join(temp_dir, f"{unique_id}.mp4")
+
+        height = quality.replace("p", "")
 
         progress_data[unique_id] = {
             "downloaded": 0,
-            "total": 0,
-            "start_time": time.time(),
+            "total": 1,
             "done": False
         }
 
-        if quality in ["480p", "720p"]:
-            stream = yt.streams.filter(progressive=True, file_extension='mp4', res=quality).first()
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                progress_data[unique_id]["downloaded"] = d.get('_percent_str', "0%")
+            if d['status'] == 'finished':
+                progress_data[unique_id]["done"] = True
 
-            if not stream:
-                stream = yt.streams.filter(progressive=True, file_extension='mp4')\
-                                   .order_by('resolution')\
-                                   .desc()\
-                                   .first()
+        ydl_opts = {
+            'format': f'bestvideo[height={height}]+bestaudio/best',
+            'outtmpl': output_path,
+            'merge_output_format': 'mp4',
+            'quiet': True,
+            'no_warnings': True,
+            'noplaylist': True,
+            'progress_hooks': [progress_hook]
+        }
 
-            total_size = stream.filesize
-            progress_data[unique_id]["total"] = total_size
+        def run():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
 
-            def progress_callback(stream, chunk, bytes_remaining):
-                downloaded = total_size - bytes_remaining
-                progress_data[unique_id]["downloaded"] = downloaded
-
-            yt.register_on_progress_callback(progress_callback)
-
-            file_path = stream.download(output_path=temp_dir, filename=f"{unique_id}.mp4")
-
-            progress_data[unique_id]["done"] = True
-            progress_data[unique_id]["file"] = file_path
-
-        elif quality == "1080p":
-            video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', res="1080p").first()
-            audio_stream = yt.streams.filter(only_audio=True).first()
-
-            if not video_stream or not audio_stream:
-                return jsonify({"error": "1080p not available"})
-
-            video_size = video_stream.filesize or 0
-            audio_size = audio_stream.filesize or 0
-            total_size = video_size + audio_size
-
-            progress_data[unique_id]["total"] = total_size
-
-            video_path = os.path.join(temp_dir, f"video_{unique_id}.mp4")
-            audio_path = os.path.join(temp_dir, f"audio_{unique_id}.mp4")
-
-            def download_video():
-                video_stream.download(output_path=temp_dir, filename=f"video_{unique_id}.mp4")
-                progress_data[unique_id]["downloaded"] += video_size
-
-            def download_audio():
-                audio_stream.download(output_path=temp_dir, filename=f"audio_{unique_id}.mp4")
-                progress_data[unique_id]["downloaded"] += audio_size
-
-            t1 = threading.Thread(target=download_video)
-            t2 = threading.Thread(target=download_audio)
-
-            t1.start()
-            t2.start()
-            t1.join()
-            t2.join()
-
-            output_path = os.path.join(temp_dir, f"final_{unique_id}.mp4")
-
-            os.system(f'ffmpeg -y -i "{video_path}" -i "{audio_path}" -c:v copy -c:a copy "{output_path}"')
-
-            progress_data[unique_id]["done"] = True
             progress_data[unique_id]["file"] = output_path
+            progress_data[unique_id]["done"] = True
+
+        threading.Thread(target=run).start()
 
         return jsonify({"id": unique_id})
 
@@ -177,7 +138,7 @@ def download():
         return jsonify({"error": str(e)})
 
 
-# 📊 Progress (Protected)
+# 📊 PROGRESS
 @app.route('/progress/<id>')
 def progress(id):
     if "user" not in session:
@@ -188,23 +149,13 @@ def progress(id):
     if not data:
         return jsonify({})
 
-    downloaded = data["downloaded"]
-    total = data["total"]
-    elapsed = time.time() - data["start_time"]
-
-    speed = (downloaded / 1024 / 1024) / elapsed if elapsed > 0 else 0
-    remaining = (total - downloaded) / 1024 / 1024 / speed if speed > 0 else 0
-
     return jsonify({
-        "downloaded": downloaded,
-        "total": total,
-        "speed": round(speed, 2),
-        "eta": round(remaining, 2),
-        "done": data["done"]
+        "progress": data.get("downloaded"),
+        "done": data.get("done")
     })
 
 
-# 📥 File download (Protected)
+# 📥 GET FILE
 @app.route('/get_file/<id>')
 def get_file(id):
     if "user" not in session:
@@ -218,7 +169,7 @@ def get_file(id):
     return "File not ready"
 
 
-# 🚪 Logout
+# 🚪 LOGOUT
 @app.route('/logout')
 def logout():
     session.pop("user", None)
@@ -226,4 +177,4 @@ def logout():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=10000)
