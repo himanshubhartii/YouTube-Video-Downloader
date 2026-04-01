@@ -128,11 +128,11 @@ def download():
         }
 
         def run():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
-            progress_data[unique_id]["file"] = output_path
-            progress_data[unique_id]["done"] = True
+    progress_data[unique_id]["file"] = output_path
+    progress_data[unique_id]["done"] = True
 
         threading.Thread(target=run).start()
 
