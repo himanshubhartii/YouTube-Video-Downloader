@@ -50,7 +50,7 @@ def get_info():
     url = request.json.get('url')
 
     try:
-        yt = YouTube(url)
+        yt = YouTube(url, use_oauth=True, allow_oauth_cache=True)
         streams = yt.streams.filter(file_extension='mp4')
 
         best = {}
