@@ -3,7 +3,6 @@ import yt_dlp
 import tempfile
 import os
 import uuid
-import time
 import threading
 
 app = Flask(__name__)
@@ -12,7 +11,7 @@ app.secret_key = "supersecretkey123"
 # 👥 USERS
 USERS = {
     "himanshu": "7323996467",
-    "admin": "7323996467"
+    "team1": "7323996467"
 }
 
 progress_data = {}
@@ -53,7 +52,8 @@ def get_info():
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'skip_download': True
+            'skip_download': True,
+            'cookiefile': 'cookies.txt'   # 🔐 IMPORTANT
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -102,16 +102,15 @@ def download():
         height = quality.replace("p", "")
 
         progress_data[unique_id] = {
-            "downloaded": 0,
-            "total": 1,
+            "progress": "0%",
             "done": False
         }
 
         def progress_hook(d):
             if d['status'] == 'downloading':
-                progress_data[unique_id]["downloaded"] = d.get('_percent_str', "0%")
-            if d['status'] == 'finished':
-                progress_data[unique_id]["done"] = True
+                progress_data[unique_id]["progress"] = d.get('_percent_str', "0%")
+            elif d['status'] == 'finished':
+                progress_data[unique_id]["progress"] = "100%"
 
         ydl_opts = {
             'format': f'bestvideo[height={height}]+bestaudio/best',
@@ -120,6 +119,7 @@ def download():
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
+            'cookiefile': 'cookies.txt',   # 🔐 IMPORTANT
             'progress_hooks': [progress_hook]
         }
 
@@ -150,7 +150,7 @@ def progress(id):
         return jsonify({})
 
     return jsonify({
-        "progress": data.get("downloaded"),
+        "progress": data.get("progress"),
         "done": data.get("done")
     })
 
